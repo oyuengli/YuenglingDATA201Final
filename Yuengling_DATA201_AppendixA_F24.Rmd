@@ -1,0 +1,434 @@
+---
+title: "Final Project Appendix A"
+author: "Olivia Yuengling"
+date: "2024-12-16"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+## Data Cleaning and Processing
+
+```{r}
+# loads any necessary libraries
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(GGally)
+library(ISLR2)
+library(caret)
+library(gplots)
+library(tidyr)
+
+# loads the dataset
+
+# install.packages("tidytuesdayR")
+
+tuesdata <- tidytuesdayR::tt_load('2024-10-22')
+## OR
+tuesdata <- tidytuesdayR::tt_load(2024, week = 43)
+
+cia_factbook <- tuesdata$cia_factbook
+```
+
+```{r}
+# displays the rows and columns of the dataset
+head(cia_factbook)
+str(cia_factbook)
+summary(cia_factbook) # prints a 5 number summary of the dataset
+dim(cia_factbook) # prints dimensions of dataset
+```
+
+### Creating the Classification/Binary Variable
+
+A stated in the beginning of the project, we want to observe if we can classify whether a country is third world or not. Unfortunately, the dataset does not come with a variable for this so we will have to code it ourselves.
+
+We will create a vector list of all of the countries that have been classified as underdeveloped in 2014 according the the United Nations (The Least Developed Countries Report 2014 \| Department of Economic and Social Affairs. (2014). Un.org. <https://sdgs.un.org/publications/least-developed-countries-report-2014-17949>). After that we will use the mutate function from the r package dplyr to create our target classification variable "third_world".
+
+```{r}
+
+undeveloped_countries <- c(
+  "Afghanistan", "Angola", "Bangladesh", "Benin", "Bhutan", "Burkina Faso", "Burundi", "Cambodia", 
+  "Central African Republic", "Chad", "Comoros", "Democratic Republic of the Congo", "Djibouti", 
+  "Equatorial Guinea", "Eritrea", "Ethiopia", "The Gambia", "Guinea", "Guinea-Bissau", "Haiti", 
+  "Kiribati", "Lao People's Democratic Republic", "Lesotho", "Liberia", "Madagascar", "Malawi", 
+  "Mali", "Mauritania", "Mozambique", "Myanmar", "Nepal", "Niger", "Rwanda", "Sao Tome and Principe", 
+  "Senegal", "Sierra Leone", "Solomon Islands", "Somalia", "South Sudan", "Sudan", "Timor-Leste", 
+  "Togo", "Tuvalu", "Uganda", "United Republic of Tanzania", "Vanuatu", "Yemen", "Zambia"
+) # creates a vector of a list of underdeveloped countries, derived from the UN
+
+cia_factbook <- cia_factbook %>% # loads mutate command into dataset
+  mutate(third_world = ifelse(country %in% undeveloped_countries, # creates a new binary variable of 3rd world status
+                                     1,  # undeveloped country
+                                     0)) # developed country
+
+```
+
+## Handling Dataset NA's
+
+```{r}
+# removes rows with more than 4 NA's
+row_na_count <- rowSums(is.na(cia_factbook)) # counts the number of NA's in each row
+limit <- 4 # sets the threshold
+cia_factbook <- cia_factbook[row_na_count <= limit, ] # removes rows with more than 4 NA's
+```
+
+For the remaining NA's in the data we will use mean or median imputation depending if the data is skewed or normally distributed based on the shape from the histograms.The histograms with a normal distribution are net migration rate and population growth rate, so we will use mean imputation because the mean is not as influenced by outliers compared to the other values in the dataset.
+
+```{r}
+cia_factbook$net_migration_rate[is.na(cia_factbook$net_migration_rate)] <- 
+  mean(cia_factbook$net_migration_rate, na.rm = TRUE)
+
+cia_factbook$population_growth_rate[is.na(cia_factbook$population_growth_rate)] <- mean(cia_factbook$net_migration_rate, na.rm = TRUE)
+
+summary(cia_factbook) # prints summary to confirm there are no NA's in normally distributed variables
+```
+
+Looking at the summaries now, we can now see that there are no NA's for the normally distributed variables in the dataset. Now, let's do the remainder of the numerical variables but with their respective median value.
+
+```{r}
+# median imputation
+
+cia_factbook$net_migration_rate[is.na(cia_factbook$infant_mortality_rate)] <- 
+  median(cia_factbook$infant_mortality_rate, na.rm = TRUE)
+
+cia_factbook$infant_mortality_rate[is.na(cia_factbook$infant_mortality_rate)] <- 
+  median(cia_factbook$infant_mortality_rate, na.rm = TRUE)
+
+cia_factbook$internet_users[is.na(cia_factbook$internet_users)] <- 
+  median(cia_factbook$internet_users, na.rm = TRUE)
+
+cia_factbook$life_exp_at_birth[is.na(cia_factbook$life_exp_at_birth)] <- 
+  median(cia_factbook$life_exp_at_birth, na.rm = TRUE)
+
+cia_factbook$maternal_mortality_rate[is.na(cia_factbook$maternal_mortality_rate)] <- 
+  median(cia_factbook$maternal_mortality_rate, na.rm = TRUE)
+
+summary(cia_factbook) # prints summary to confirm there are no NA's
+```
+
+Now, there are no NA's in the dataset. Let's now analyze our target variable, net migration, in more detail.
+
+
+# Appendix A: Regression Modeling
+
+Let's start to create our regression model for net migration rate. We will use ggpairs and a summary of our full model to understand if there is a correlation between net migration and an variables in the dataset.
+
+### Correlation Matrix
+
+```{r}
+cia_factbook_no_country <- cia_factbook %>%
+  select(-country)
+cormat <- round(cor(cia_factbook_no_country),2)
+head(cormat)
+```
+```{r}
+library(reshape2)
+melted_cormat <- melt(cormat)
+head(melted_cormat)
+```
+
+```{r}
+library(ggplot2)
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_raster()
+```
+
+```{r}
+# Get lower triangle of the correlation matrix
+  get_lower_tri<-function(cormat){
+    cormat[upper.tri(cormat)] <- NA
+    return(cormat)
+  }
+  # Get upper triangle of the correlation matrix
+  get_upper_tri <- function(cormat){
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)
+  }
+  
+  upper_tri <- get_upper_tri(cormat)
+upper_tri
+```
+
+
+```{r}
+# Melt the correlation matrix
+library(reshape2)
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+# Heatmap
+library(ggplot2)
+ggplot(data = melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+   name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 12, hjust = 1))+
+ coord_fixed()
+```
+We can observe there may be collinearlities with birth rate, death rate, infant mortality rate, life expectancy at birth, and maternal mortality. There may be a potential association between all of these variables. What is particularly interesting is that life expectancy at birth may have the strongest correlation out of all of the variables in the dataset as it has a single star next to it, which will be important when creating our regression model.
+
+Now, let's move onto creating our full model to observe any statistically significant variables in our dataset.
+
+### Creating the Full Regression model
+
+```{r}
+fullmodel <- lm(net_migration_rate ~ ., data = cia_factbook_no_country) # creates full model
+summary(fullmodel) # prints summary of the model
+```
+Looking at the statistics here, the full model is already excellent at predicting the values of the data judging by the high r-squared and extremely low p-value. Most of the variables do not pass the significance test, and according to the correlation matrix they don't necessarily correlate with the net migration rate. 
+
+```{r}
+# creates linear regression plot
+
+ggplot(cia_factbook_no_country, aes(x = area + birth_rate + infant_mortality_rate, internet_users + life_exp_at_birth + maternal_mortality_rate + population + population_rate + third_world, y = net_migration_rate)) +
+  geom_point(color = "black", size = 1.5) +
+  geom_smooth(method = "lm", formula = y ~ x, color = "red", se = FALSE) +
+  labs(title = "Linear Regression",
+       x = "Predictor Values",
+       y = "Net Migration") +
+  theme_minimal()
+
+```
+
+Let us explore the possibility of using variables which correlate stronger or are more statistically significant produces a more robust model, with a high adjusted r-squared. We will use the variables of birth rate, death rate, life expectancy at birth, and population growth rate as they either have a strong correlation and/or are statistically significant.
+
+First, let's explore each variable individually.
+
+```{r}
+cia_factbook_long <- cia_factbook %>%
+  pivot_longer(cols = c(birth_rate, death_rate, life_exp_at_birth,
+                        population_growth_rate),
+               names_to = "variable", values_to = "value")
+
+# creates faceted histogram plot
+ggplot(cia_factbook_long, aes(x = value)) +
+  geom_histogram(bins = 30, fill = "purple", color = "black") +
+  facet_wrap(~variable, scales = "free") + # facet by variable, allow different scales
+  theme_minimal() +
+  labs(title = "Faceted Histograms of CIA Factbook Variables",
+       x = "Value",
+       y = "Frequency")
+```
+The majority of the variables we are looking at have a skewed spread. For birth rate, the data is skewed right which means that some countries have lots of babies being born but the vast majority is around 10-20%. The death rate is also skewed right and the majority of the data has a death rate of 5-10%, with some having death rates around 15%. Life expectancy at birth is skewed left, which makes sense considering that the numeric data is ordinal. The majority of countries have a life expectancy of 70-80 years old, which makes sense. The population growth rate is more bell shaped than the other variables but is still skewed right. The majority of the countries have a population growth rate around 1%. 
+
+Now let's see how each variable individually correlates with the net migration rate.
+
+```{r}
+cia_factbook_long <- cia_factbook %>%
+  pivot_longer(cols = c(birth_rate, death_rate, life_exp_at_birth,
+                        population_growth_rate),
+               names_to = "variable", values_to = "x_value") # Renaming for clarity
+
+# Creating the faceted scatterplot
+ggplot(cia_factbook_long, aes(x = x_value, y = net_migration_rate)) +
+  geom_point(color = "black", alpha = 0.7) +
+  facet_wrap(~variable, scales = "free_x") + # Facet by variable, allow free x-scale
+  theme_minimal() +
+  labs(
+    title = "Faceted Scatterplots of CIA Factbook Variables vs Net Migration Rate",
+    x = "Variable Value",
+    y = "Net Migration Rate"
+  )
+```
+As shown above, there seems to be a very strong linear pattern between net migration and birth rate, life expectancy, and death rate. For population growth rate, there appears to be some bunchiness with the variables. 
+
+```{r}
+model1 <- lm(net_migration_rate ~ birth_rate + death_rate + population_growth_rate + life_exp_at_birth, data = cia_factbook) # creates a model with statistically significant values from the correlation matrix and the full model summary
+summary(model1) # provides a summary for model1
+```
+
+This version of the model is slightly more robust as the adjusted r-squared has increased by .0015. It is also just as statistically significant as the original model looking at the p-value of 2.2e-16.
+
+```{r}
+ggplot(cia_factbook, aes(x = birth_rate + death_rate + population_growth_rate + life_exp_at_birth, y = net_migration_rate)) +
+  geom_point(color = "black", size = 1.5) +
+  geom_smooth(method = "lm", formula = y ~ x, color = "purple", se = FALSE) +
+  labs(title = "Linear Regression",
+       x = "Predictor Values",
+       y = "Net Migration") +
+  theme_minimal()
+
+```
+Is this model the best model we can get for our target variable? To confirm this we will use the step() function.
+
+```{r}
+model1 <- step(fullmodel) # uses stepwise function
+```
+The most optimal model to predict net migration rate contains the variables birth rate, death rate, and population growth rate. All of the values pass the significance test and the R-squared is slightly improved from the previous model. This means that this is the best model to predict the net migration rate.
+
+```{r}
+summary(model1)
+```
+```{r}
+ggplot(cia_factbook, aes(x = birth_rate + death_rate + population_growth_rate , y = net_migration_rate)) +
+  geom_point(color = "black", size = 1.5) +
+  geom_smooth(method = "lm", formula = y ~ x, color = "purple", se = FALSE) +
+  labs(title = "Linear Regression",
+       x = "Predictor Values",
+       y = "Net Migration") +
+  theme_minimal()
+```
+As shown, the values fit slightly better on the plot. Let's move onto training our model.
+
+
+```{r}
+#Creating a train/test partition using random sampling.
+
+set.seed(1231)#use a seed for reproducibility
+
+#use 80% of dataset as training set and 20% as test set
+sample <- sample(c(TRUE, FALSE), size = nrow(cia_factbook_no_country), replace = TRUE, prob = c(0.8, 0.2))
+ciaTrain  <- cia_factbook_no_country[sample, ]
+ciaTest   <- cia_factbook_no_country[!sample, ]
+```
+
+```{r}
+fullTrain = lm(net_migration_rate ~ birth_rate + death_rate + population_growth_rate, data = ciaTrain) #Note selection of dataset
+names(fullTrain) #reminder of all the elements contained in this object
+summary(fullTrain)#Print the model summary
+par(mfrow=c(2,2)) #format the plot
+plot(fullTrain) #print the plots of the main diagnostics for your model fit to the training data
+```
+The diagnostic plots show some issues with the regression model. Outliers, especially observations 134, 62, and 72, stand out in multiple plots. The residuals may not have constant variance (heteroscedasticity), and there are slight deviations from normality. Observation 134 also has high leverage, indicating it might strongly influence the model. These findings suggest the need to address outliers and check the model's assumptions.
+
+However, these outliers may originate from the Syria and Lebanon outliers from the original dataset so we should take that into account.
+
+``` {r}
+predFull<-predict(object = fullTrain,     # The regression model fit with training data
+        newdata = ciaTest)           #  creates a new dataframe with the test data 
+```
+
+```{r}
+summary(model1)$coefficients # prints coefficients
+```
+
+```{r}
+fullRMSE <- RMSE(predFull, ciaTest$net_migration_rate) ## calculates the RMSE and R2
+c(RMSE = fullRMSE, R2=summary(fullTrain)$r.squared)
+```
+The RMSE of the model is 5.5, which indicates there is a relatively large error meaning that the model does make incorrect predictions. Considering the migration rate's IQR is from around -2 to 1, the RMSE is high. However, the R-squared value of 0.983 means that 98.3% of the variation in the target variable is explained by the predictors of the model. This suggests an excellent fit!
+
+# Appendix A: Regression Models
+
+We have already reviewed the performance of the first model and have used stepwise selection to optimize the baseline linear model. But what if there was a more efficient version of the model? Let's experiment with a polynomial regression to understand if it is a more efficient model.
+
+```{r}
+polymodel <- lm(net_migration_rate ~ poly(birth_rate, 2) + poly(death_rate, 3) + poly(population_growth_rate, 4), data = cia_factbook_no_country)
+
+summary(polymodel)
+```
+```{r}
+#Creating a train/test partition using random sampling.
+
+set.seed(1234)#use a seed for reproducibility
+
+#use 80% of dataset as training set and 20% as test set
+sample <- sample(c(TRUE, FALSE), size = nrow(cia_factbook_no_country), replace = TRUE, prob = c(0.8, 0.2))
+ciaTrain1  <- cia_factbook_no_country[sample, ]
+ciaTest1   <- cia_factbook_no_country[!sample, ]
+```
+
+
+```{r}
+fullTrain1 = lm(net_migration_rate ~ poly(birth_rate, 2) + 
+                  poly(death_rate, 3) + 
+                  poly(population_growth_rate, 4), data = ciaTrain)
+names(fullTrain1) #reminder of all the elements contained in this object
+summary(fullTrain1)#Print the model summary
+par(mfrow=c(2,2)) #format the plot
+plot(fullTrain) #print the plots of the main diagnostics for the model fit to the training data
+```
+The diagnostic plots for the regression model revealed a few issues which are worth addressing. The Residuals vs Fitted plot exhibits slight heteroscedasticity, especially at higher fitted values, where the spread of residuals increases. The Q-Q plot highlights deviations from normality, with heavy tails at both ends and a handful of clear outliers, such as points 206 and 166. The Scale-Location plot reinforces that the variance is not consistent with the data, as the red line dips and then rises again. Finally, the Residuals vs Leverage plot highlights points 206, 166, and 89 as influential, with high leverage and residuals, and suggests that they may be interfering with the model too much. While the model performs well overall, we may need to look into the outliers and understand how to solve for these issues.
+
+These outliers may have originated from the Lebanon and Syria situation, so we will test the model using data that doesn't contain the outliers. We will create a version of the data without the 
+
+```{r}
+cia_factbook_noutlier <- subset(cia_factbook, !(country %in% c("Lebanon", "Syria"))) # removes lebanon and syria
+
+cia_factbook_noutlier <- cia_factbook_noutlier %>% # removes categorical variable
+  select(-country)
+
+summary(cia_factbook_noutlier)
+```
+Note the change of the interquartile range for the net migration rate.
+
+Now let's try and train the polynomial data based on the cia_factbook dataset without the outliers. We will also test our baseline model with the new data for a more accurate prediction between the two models.
+
+```{r}
+#Creating a train/test partition using random sampling.
+
+set.seed(1234)#use a seed for reproducibility
+
+#use 80% of dataset as training set and 20% as test set
+sample <- sample(c(TRUE, FALSE), size = nrow(cia_factbook_noutlier), replace = TRUE, prob = c(0.8, 0.2))
+ciaTrain1  <- cia_factbook_noutlier[sample, ]
+ciaTest1   <- cia_factbook_noutlier[!sample, ]
+```
+
+```{r}
+fullTrain1 = lm(net_migration_rate ~ poly(birth_rate, 2) + poly(death_rate, 3) + poly(population_growth_rate, 4), data = ciaTrain1)
+names(fullTrain1) #reminder of all the elements contained in this object
+summary(fullTrain1)#Print the model summary
+par(mfrow=c(2,2)) #format the plot
+plot(fullTrain1) #print the plots of the main diagnostics for the model fit to the training data
+```
+After removing Lebanon and Syria, the model looks way cleaner. The residuals are more evenly spread around the fitted values, which shows the predictions are more consistent. The Q-Q plot looks better too, with the points mostly following the normal line, except for a couple of slight deviations at the ends. The scale-location plot shows the variance is more stable, and the leverage plot doesn’t have as many high-influence points anymore. Overall, the model feels more solid and reliable now.. Judging by the residuals vs fitted plot, we can observe that serveral datapoints on both dies of zero hae high residuals which indicate that the model may be way off with its predicitons. Let's confirm this by finding the RMSE and R-squared.
+
+```{r}
+predFull1<-predict(object = fullTrain1,     # The regression model fit with training data
+        newdata = ciaTest1)           #  creates a new dataframe with the test data
+
+fullRMSE <- RMSE(predFull1, ciaTest1$net_migration_rate) ## calculates the RMSE and R2
+c(RMSE = fullRMSE, R2=summary(fullTrain1)$r.squared)
+```
+The RMSE of 0.56 is very small compared to the range and variability of the net migration rate. Additionally, the r-squared is excellent because it means that the model represents approximately 93 percent of the data which is a good sign that the model is accurate with its predictions. How does the linear regression model compare with the dataset without the outlieers though? Let's take a look.
+
+```{r}
+fullTrain2 = lm(net_migration_rate ~ birth_rate + death_rate + population_growth_rate, data = ciaTrain1)
+names(fullTrain2) #reminder of all the elements contained in this object
+summary(fullTrain2)#Print the model summary
+par(mfrow=c(2,2)) #format the plot
+plot(fullTrain2) #print the plots of the main diagnostics for the model fit to the training data
+```
+The diagnostic plots reveal key insights about the regression model. The Residuals vs Fitted plot shows some patterns, suggesting potential non-linearity in the data, which indicates the model might not fully capture the relationship between predictors and the response. The Q-Q Residuals plot shows slight deviations from the straight line, particularly at the tails, meaning the residuals are not perfectly normally distributed. The Scale-Location plot highlights heteroscedasticity, as the spread of residuals is not constant across fitted values. Lastly, the Residuals vs Leverage plot identifies influential points, such as 165 and 129, which may disproportionately affect the model. These issues suggest the model may benefit from further refinements, such as transformations or outlier handling.
+
+```{r}
+predFull2<-predict(object = fullTrain2,     # The linear regression model fit with training data
+        newdata = ciaTest1)     
+
+print("Linear Regression Model")
+fullRMSE <- RMSE(predFull2, ciaTest1$net_migration_rate) ## calculates the RMSE and R2
+c(RMSE = fullRMSE, R2=summary(fullTrain)$r.squared)
+```
+
+The linear model's metrics exhibit an RMSE of 1.34, indicating that the average prediction error is relatively low. The R-Squared value suggests that the model can explain 93.3 percent of the variance in the response variable, meaning that the model is a very strong fit for the data. However, the impressive R-squared is impressive but the residual plots point to potential issues with non-linearity and influential points which may need to be addressed to improve the model and its performance. That is why we have the polynomial model which attempts to take these non-linear relationships into account.
+
+Now let's compare the linear model to the polynomial model.
+
+## Comparing the Models
+
+```{r}
+summary(model1) # prints summary statistics of the linear model
+summary(polymodel) # prints summary statistics of the polynomial model
+```
+
+The comparison between the two models demonstrates that the polynomial regression model fits the data better than the linear model. With an adjusted R-squared of 0.9629 and a residual standard error of 2.144, the polynomial model explains 96.44% of the variance in the net migration rate, while the linear model has an adjusted R-squared of 0.9378 and a residual standard error of 2.776. This indicates that the polynomial model more effectively captures the complexities of the relationships among birth rate, death rate, and population growth rate. Although the polynomial model offers greater accuracy, it is also more complex and may be harder to interpret. Thus, while the polynomial model is statistically superior, the decision between the two should consider whether predictive accuracy or model simplicity is more crucial for the analysis.
+
+We will also compare the RMSE for both of the models additionally to compare which model has more accurate predicitons.
+
+```{r}
+
+print("Linear Regression Model")
+fullRMSE <- RMSE(predFull2, ciaTest1$net_migration_rate) ## calculates the RMSE and R2
+c(RMSE = fullRMSE, R2=summary(fullTrain)$r.squared)
+
+print("Polynomial Regression Model")
+fullRMSE <- RMSE(predFull1, ciaTest1$net_migration_rate) ## calculates the RMSE and R2
+c(RMSE = fullRMSE, R2=summary(fullTrain1)$r.squared)
+```
+The polynomial model seems to be superior to the linear regression model in terms of prediction accuracy with a lower RMSE, although the linear model has a slightly higher R-squared. This would mean that although the linear model fits the data well, it does not necessarily generalize as well as the polynomial model, which appears to capture underlying relationships between varaibles with fewer prediction errors. Therefore, for more accurate predicitions the polynomial model is the best model.
+
+

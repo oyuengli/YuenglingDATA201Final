@@ -1,0 +1,326 @@
+---
+title: "DATA 201 Final Appendix B"
+author: "Olivia Yuengling"
+date: "2024-12-16"
+output:
+  word_document: default
+  html_document: default
+---
+
+# Appendix B
+
+# Data Cleaning and Processing
+
+```{r}
+# loads any necessary libraries
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(GGally)
+library(ISLR2)
+library(caret)
+library(gplots)
+library(tidyr)
+library(mlbench)
+
+# loads the dataset
+
+# install.packages("tidytuesdayR")
+
+tuesdata <- tidytuesdayR::tt_load('2024-10-22')
+## OR
+tuesdata <- tidytuesdayR::tt_load(2024, week = 43)
+
+cia_factbook <- tuesdata$cia_factbook
+```
+
+```{r}
+# displays the rows and columns of the dataset
+head(cia_factbook)
+str(cia_factbook)
+summary(cia_factbook) # prints a 5 number summary of the dataset
+dim(cia_factbook) # prints dimensions of dataset
+```
+
+### Creating the Classification/Binary Variable
+
+A stated in the beginning of the project, we want to observe if we can classify whether a country is third world or not. Unfortunately, the dataset does not come with a variable for this so we will have to code it ourselves.
+
+We will create a vector list of all of the countries that have been classified as underdeveloped in 2014 according the the United Nations (The Least Developed Countries Report 2014 \| Department of Economic and Social Affairs. (2014). Un.org. <https://sdgs.un.org/publications/least-developed-countries-report-2014-17949>). After that we will use the mutate function from the r package dplyr to create our target classification variable "third_world".
+
+```{r}
+
+undeveloped_countries <- c(
+  "Afghanistan", "Angola", "Bangladesh", "Benin", "Bhutan", "Burkina Faso", "Burundi", "Cambodia", 
+  "Central African Republic", "Chad", "Comoros", "Democratic Republic of the Congo", "Djibouti", 
+  "Equatorial Guinea", "Eritrea", "Ethiopia", "The Gambia", "Guinea", "Guinea-Bissau", "Haiti", 
+  "Kiribati", "Lao People's Democratic Republic", "Lesotho", "Liberia", "Madagascar", "Malawi", 
+  "Mali", "Mauritania", "Mozambique", "Myanmar", "Nepal", "Niger", "Rwanda", "Sao Tome and Principe", 
+  "Senegal", "Sierra Leone", "Solomon Islands", "Somalia", "South Sudan", "Sudan", "Timor-Leste", 
+  "Togo", "Tuvalu", "Uganda", "United Republic of Tanzania", "Vanuatu", "Yemen", "Zambia"
+) # creates a vector of a list of underdeveloped countries, derived from the UN
+
+cia_factbook <- cia_factbook %>% # loads mutate command into dataset
+  mutate(third_world = ifelse(country %in% undeveloped_countries, # creates a new binary variable of 3rd world status
+                                     1,  # undeveloped country
+                                     0)) # developed country
+
+```
+
+
+## Handling Dataset NA's
+
+```{r}
+# removes rows with more than 4 NA's
+row_na_count <- rowSums(is.na(cia_factbook)) # counts the number of NA's in each row
+limit <- 4 # sets the threshold
+cia_factbook <- cia_factbook[row_na_count <= limit, ] # removes rows with more than 4 NA's
+```
+
+For the remaining NA's in the data we will use mean or median imputation depending if the data is skewed or normally distributed based on the shape from the histograms.The histograms with a normal distribution are net migration rate and population growth rate, so we will use mean imputation because the mean is not as influenced by outliers compared to the other values in the dataset.
+
+```{r}
+cia_factbook$net_migration_rate[is.na(cia_factbook$net_migration_rate)] <- 
+  mean(cia_factbook$net_migration_rate, na.rm = TRUE)
+
+cia_factbook$population_growth_rate[is.na(cia_factbook$population_growth_rate)] <- mean(cia_factbook$net_migration_rate, na.rm = TRUE)
+
+summary(cia_factbook) # prints summary to confirm there are no NA's in normally distributed variables
+```
+
+Looking at the summaries now, we can now see that there are no NA's for the normally distributed variables in the dataset. Now, let's do the remainder of the numerical variables but with their respective median value.
+
+```{r}
+# median imputation
+
+cia_factbook$net_migration_rate[is.na(cia_factbook$infant_mortality_rate)] <- 
+  median(cia_factbook$infant_mortality_rate, na.rm = TRUE)
+
+cia_factbook$infant_mortality_rate[is.na(cia_factbook$infant_mortality_rate)] <- 
+  median(cia_factbook$infant_mortality_rate, na.rm = TRUE)
+
+cia_factbook$internet_users[is.na(cia_factbook$internet_users)] <- 
+  median(cia_factbook$internet_users, na.rm = TRUE)
+
+cia_factbook$life_exp_at_birth[is.na(cia_factbook$life_exp_at_birth)] <- 
+  median(cia_factbook$life_exp_at_birth, na.rm = TRUE)
+
+cia_factbook$maternal_mortality_rate[is.na(cia_factbook$maternal_mortality_rate)] <- 
+  median(cia_factbook$maternal_mortality_rate, na.rm = TRUE)
+
+summary(cia_factbook) # prints summary to confirm there are no NA's
+```
+
+Now, there are no NA's in the dataset. Let's now analyze our target variable, net migration, in more detail.
+
+# Creating the Baseline Classification Model
+
+```{r}
+cia_factbook_no_country <- cia_factbook %>%
+  select(-country)
+
+model2 <- glm(third_world ~ ., 
+              data = cia_factbook_no_country, 
+              family = "binomial")
+summary(model2)
+```
+
+The initial logistic regression model didn't converge, which means it struggled to make accurate predictions due to the complexity of the data. Several variables, including birth rate, death rate, and population growth rate, showed very large standard errors and p-values, indicating they weren't adding much to the model. The coefficients were unstable, which led to unreliable results.
+
+```{r}
+library(car)
+vif(glm(third_world ~ ., data = cia_factbook_no_country, family = "binomial"))
+```
+
+I simplified the model by removing less relevant variables like infant mortality rate and internet users. This cleaner version included death rate, net migration rate, population, and population growth rate. However, the model still didn't converge, suggesting there might still be multicollinearity or other issues affecting the accuracy of predictions. To improve this, I could look into variable correlations or apply regularization techniques.
+
+```{r}
+model3 <- glm(third_world ~ death_rate + net_migration_rate + population + population_growth_rate,
+                     data = cia_factbook_no_country, 
+                     family = "binomial")
+summary(model3)
+```
+
+Let's break down these results. The significant predictors of the model are death rate, net migration rate, and population growth rate. A higher death and population rate increases the likelihood of a country being underdeveloped. A higher migration rate out of a country would lower the likelihood of a country being a third world country. Also, the AIC value of 116.24 indicaters the model is more effective than the null model, or the assumption that there is no relationship with the predictors and the outcome.
+
+However, one of thee variables is statistically insignificant (population) and we will remove this variable so we could produce a more robust classification model. There may need to be a more efficient version of the model which is supported by the number of Fisher Scoring iterations (7), indicating the model is potentially unstable and the algorithm did not fully converge.
+
+We will try to produce a more robust model by removing the population variable.
+
+```{r}
+model4 <- glm(third_world ~ death_rate + net_migration_rate 
+                     + population_growth_rate ,
+                     data = cia_factbook_no_country, 
+                     family = "binomial")
+summary(model4)
+```
+
+As observed from the output, the number of Fisher Scoring Interations has slightly improved signaling that the model is slightly more stable. Additionally, the p-values for the model have slightly improved indicating that the predictors are more strongly associated with whether a country is third world or not. Furthermore, the AIC (116.64) is slightly higher than the previous model's (116.24). Typically models with lower AICs are superior to those with higher AICs, but given the significan coefficients and the better Fister Scoring Interactions this model is overall more robust, but the difference between the models is quite minimal.
+
+```{r}
+car::vif(model4)
+```
+
+To check for multicollinearity, we will use the car package and the VIF function to identify if there are any multicollinearities. The general rule of thumb is to make sure that the values the function produces are under 5-10, which all of these values do pass. Therefore there is not any mulicollinearities to worry about.
+
+```{r}
+log_model <- model4 # renames the model to log_model
+```
+
+# Testing and Training the Logistic Classification Model
+
+```{r}
+# Train/Test Split
+set.seed(1231)
+sample <- sample(c(TRUE, FALSE), size = nrow(cia_factbook_no_country), replace = TRUE, prob = c(0.8, 0.2))
+train <- cia_factbook_no_country[sample, ]
+test <- cia_factbook_no_country[!sample, ]
+
+# Convert 'third_world' to factor in both train and test datasets
+train$third_world <- factor(train$third_world, levels = c(0, 1))
+test$third_world <- factor(test$third_world, levels = c(0, 1))
+
+log_model <- train(
+  third_world ~ death_rate + birth_rate + population_growth_rate,  # Formula for prediction
+  data = train,  # Use training data for fitting the model
+  method = "glm",  # Generalized Linear Model
+  family = "binomial",  # Logistic regression for binary classification
+  trControl = trainControl(method = "cv")  # Cross-validation for model selection
+)
+
+# Predictions and Confusion Matrix for Logistic Regression
+log_preds <- predict(log_model, newdata = test, type = "raw")  # Change type to "raw" for class labels
+
+# Confusion Matrix
+conf_matrix_log <- confusionMatrix(factor(log_preds), factor(test$third_world))  # Make sure both are factors
+print(conf_matrix_log)
+# manually extract confusion matrix components
+cm <- conf_matrix_log$table
+TP <- cm[2, 2]  # True Positives
+TN <- cm[1, 1]  # True Negatives
+FP <- cm[1, 2]  # False Positives
+FN <- cm[2, 1]  # False Negatives
+
+# manually calculates precision, recall, and F1 Score
+precision_log <- TP / (TP + FP)  # Precision
+recall_log <- TP / (TP + FN)     # Recall (Sensitivity)
+f1_log <- 2 * (precision_log * recall_log) / (precision_log + recall_log)  # F1 Score
+
+# Display the metrics
+print("Percision")
+precision_log
+print("Recall")
+recall_log
+print("F1")
+f1_log
+```
+
+The Logistic Regression model is performing really well. With an accuracy of 93.02%, it’s doing much better than just guessing, since the No Information Rate (NIR) is only 79.07%. The Kappa score of 0.7802 shows that the predictions are in good agreement with the actual outcomes, beyond chance.
+
+In terms of performance, the model’s sensitivity is excellent at 97.06%, meaning it’s great at picking up third-world countries. However, its specificity is a bit lower at 77.78%, indicating it’s not as good at identifying non-third-world countries. The precision (positive predictive value) is pretty high at 94.29%, so when the model predicts a country as third-world, it’s correct most of the time. The negative predictive value (NPV) is 87.5%, showing that it’s still fairly reliable in predicting non-third-world countries, though it could be a bit better.
+
+With an F1 score of 0.8235, the model strikes a good balance between precision and recall, which is important for getting a solid mix of true positives and minimizing false positives. Overall, the balanced accuracy of 87.42% is a strong sign that the model performs well across both categories, but there’s definitely room for improvement, particularly in predicting non-third-world countries.
+
+# Creating the Random Forest Classification Model
+
+```{r}
+randomForestFit <- train |> train(third_world ~ birth_rate + death_rate + population_growth_rate,
+  method = "rf",
+  data = _,
+    tuneLength = 5,
+    trControl = trainControl(method = "cv"))
+randomForestFit
+
+randomForestFit$finalModel
+
+randomForest_preds <- predict(randomForestFit, test)
+
+# Make sure both have the same levels (0 and 1 for binary classification)
+randomForest_preds <- factor(randomForest_preds, levels = c(0, 1))
+
+# Create confusion matrix
+conf_matrix_rf <- confusionMatrix(randomForest_preds, test$third_world)
+
+cm1 <- conf_matrix_rf$table
+TP <- cm1[2, 2]  # True Positives
+TN <- cm1[1, 1]  # True Negatives
+FP <- cm1[1, 2]  # False Positives
+FN <- cm1[2, 1]  # False Negatives
+
+# manually calculates precision, recall, and F1 Score
+precision_rf <- TP / (TP + FP)  # Precision
+recall_rf <- TP / (TP + FN)     # Recall (Sensitivity)
+f1_rf <- 2 * (precision_log * recall_log) / (precision_log + recall_log)  # F1 Score
+
+# Display the metrics
+print("Precision")
+precision_rf
+print("Recall")
+recall_rf
+print("F1")
+f1_rf
+```
+The Random Forest model has an accuracy of 88.36 percent, which is quite solid. However, the precision of 22.22% is pretty low, meaning it struggles when it predicts a country as third-world. Its recall of 50 percent shows it’s moderately good at identifying third-world countries but still misses a fair number of them. The F1 score of 42.86 percent suggests there’s room for improvement in balancing precision and recall. Despite its decent overall accuracy, the model is having difficulty with non-third-world countries, which is reflected in the low precision and moderate recall. Fine-tuning the model or balancing the dataset could help improve its performance.
+
+# Creating the ANN (Artificial Neural Network) Model
+
+```{r}
+
+
+nnetFit <- train(
+  third_world ~ birth_rate + death_rate + population_growth_rate,                  # Use all predictors
+  method = "nnet",                  # Neural network model
+  data = train,                     # Training dataset
+  tuneLength = 5,                   # Automatic tuning for 5 combinations of hyper parameters
+  trControl = trainControl(method = "cv"), # Cross-validation
+  trace = FALSE                     # Suppress progress output
+)
+
+nnetFit
+
+nnet_preds <- predict(nnetFit, test)
+
+# Predictions
+nnet_preds <- factor(nnet_preds, levels = levels(test$third_world))
+
+# confusion matrix and metrics
+conf_matrix_nnet <- confusionMatrix(nnet_preds, factor(test$third_world))
+
+# Extract confusion matrix components for ANN
+cm_nnet <- conf_matrix_nnet$table
+TP_nnet <- cm_nnet[2, 2]
+TN_nnet <- cm_nnet[1, 1]
+FP_nnet <- cm_nnet[1, 2]
+FN_nnet <- cm_nnet[2, 1]
+
+# Calculate Precision, Recall, and F1 Score for ANN
+precision_nnet <- TP_nnet / (TP_nnet + FP_nnet)
+recall_nnet <- TP_nnet / (TP_nnet + FN_nnet)
+f1_nnet <- 2 * (precision_nnet * recall_nnet) / (precision_nnet + recall_nnet)
+
+# Print the metrics for ANN
+print("Precision")
+precision_nnet
+print("Recall")
+recall_nnet
+print("F1")
+f1_nnet
+```
+
+The Neural Network model does pretty well, with an accuracy of 89.02%, which is solid. Its precision and recall are both 77.78%, meaning it does a good job at identifying third-world countries without making too many mistakes on either side. The F1 score of 77.78% backs that up. While it's doing well, it’s not the best when compared to the other models, and there’s definitely room for improvement. Tweaking the model or playing around with different settings could help make it even better.
+
+```{r}
+resamps <- resamples(list(
+  logReg = log_model,
+  ANN = nnetFit,
+  RandomForest = randomForestFit))
+
+summary(resamps)
+```
+The Random Forest model clearly outperforms the others, with a strong average accuracy of 88.4% and a high degree of consistency. It occasionally hits a perfect 100%, and its Kappa score shows it’s making solid, reliable predictions. Logistic Regression also does well with an accuracy of 87.9%, but it’s a bit more inconsistent, and its Kappa score suggests it doesn’t always match the true values perfectly. The ANN model shows promise but struggles more than the other two, particularly in terms of consistency. Overall, Random Forest is the most reliable and gives the best performance across the board.
+
+# Summary and Conclusion
+
+The three models — Logistic Regression, Random Forest, and Artificial Neural Network (ANN) — showed varying performance levels in classifying countries as either third world or not. Logistic Regression performed strongly, with an accuracy of 93.02%, excellent sensitivity (97.06%), and solid precision (94.29%). However, its specificity was lower at 77.78%, meaning it was less effective at identifying non-third world countries. Despite this, its F1 score of 0.8235 indicated a good balance between precision and recall. Random Forest, while achieving an accuracy of 88.36%, struggled with low precision (22.22%) and moderate recall (50%), leading to an F1 score of 42.86%. This model showed potential but needs improvement, especially in balancing its ability to predict third-world countries without misclassifying non-third-world ones. The ANN model had an accuracy of 89.02%, with precision and recall both at 77.78%, showing solid performance but with some inconsistencies.
+
+In conclusion, Random Forest was the most reliable model overall, with strong accuracy and consistent results across folds. Logistic Regression also performed well, especially in predicting third-world countries, though it could improve in identifying non-third-world nations. The ANN model, while promising, didn’t quite reach the performance of the other two and would benefit from further fine-tuning. Ultimately, Random Forest outperformed the other models, but there’s still room to refine all three approaches, especially in handling class imbalance and improving prediction consistency across both third-world and non-third-world countries.
